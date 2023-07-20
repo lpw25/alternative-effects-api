@@ -1,0 +1,204 @@
+(executables
+  (names cmphash effects evenodd manylive overflow partial reperform sched shallow_state
+              shallow_state_io test1 test2 test3 test4 test5 test10 test11 used_cont)
+  (libraries effect)
+  (flags (:standard -w "-27-37-32-35-39-69"))
+  (preprocess no_preprocessing))
+
+; ============ cmphash ==============
+(rule
+  (targets cmphash.reference.out)
+  (deps cmphash.exe)
+  (action (bash "./cmphash.exe > cmphash.reference.out")))
+
+(rule
+  (alias runtest)
+  (deps cmphash.reference cmphash.reference.out)
+  (action (bash "diff cmphash.reference cmphash.reference.out")))
+
+; ============ effects ==============
+(rule
+  (targets effects.reference.out)
+  (deps effects.exe)
+  (action (bash "./effects.exe > effects.reference.out")))
+
+(rule
+  (alias runtest)
+  (deps effects.reference effects.reference.out)
+  (action (bash "diff effects.reference effects.reference.out")))
+
+; ============ evenodd ==============
+(rule
+  (targets evenodd.reference.out)
+  (deps evenodd.exe)
+  (action (bash "./evenodd.exe > evenodd.reference.out")))
+
+(rule
+  (alias runtest)
+  (deps evenodd.reference evenodd.reference.out)
+  (action (bash "diff evenodd.reference evenodd.reference.out")))
+
+; ============ manylive ==============
+(rule
+  (targets manylive.reference.out)
+  (deps manylive.exe)
+  (action (bash "./manylive.exe > manylive.reference.out")))
+
+(rule
+  (alias runtest)
+  (deps manylive.reference manylive.reference.out)
+  (action (bash "diff manylive.reference manylive.reference.out")))
+
+; ============ overflow ==============
+(rule
+  (targets overflow.reference.out)
+  (deps overflow.exe)
+  (action (bash "./overflow.exe > overflow.reference.out")))
+
+(rule
+  (alias runtest)
+  (deps overflow.reference overflow.reference.out)
+  (action (bash "diff overflow.reference overflow.reference.out")))
+
+; ============ partial ==============
+(rule
+  (targets partial.reference.out)
+  (deps partial.exe)
+  (action (bash "./partial.exe > partial.reference.out")))
+
+(rule
+  (alias runtest)
+  (deps partial.reference partial.reference.out)
+  (action (bash "diff partial.reference partial.reference.out")))
+
+; ============ reperform ==============
+(rule
+  (targets reperform.reference.out)
+  (deps reperform.exe)
+  (action (bash "./reperform.exe > reperform.reference.out")))
+
+(rule
+  (alias runtest)
+  (deps reperform.reference reperform.reference.out)
+  (action (bash "diff reperform.reference reperform.reference.out")))
+
+; ============ sched ==============
+(rule
+  (targets sched.reference.out)
+  (deps sched.exe)
+  (action (bash "./sched.exe > sched.reference.out")))
+
+(rule
+  (alias runtest)
+  (deps sched.reference sched.reference.out)
+  (action (bash "diff sched.reference sched.reference.out")))
+
+; ============ shallow_state ==============
+(rule
+  (targets shallow_state.reference.out)
+  (deps shallow_state.exe)
+  (action (bash "./shallow_state.exe > shallow_state.reference.out")))
+
+(rule
+  (alias runtest)
+  (deps shallow_state.reference shallow_state.reference.out)
+  (action (bash "diff shallow_state.reference shallow_state.reference.out")))
+
+; ============ shallow_state_io ==============
+(rule
+  (targets shallow_state_io.reference.out)
+  (deps shallow_state_io.exe)
+  (action (bash "./shallow_state_io.exe > shallow_state_io.reference.out")))
+
+(rule
+  (alias runtest)
+  (deps shallow_state_io.reference shallow_state_io.reference.out)
+  (action (bash "diff shallow_state_io.reference shallow_state_io.reference.out")))
+
+; ============ test1 ==============
+(rule
+  (targets test1.reference.out)
+  (deps test1.exe)
+  (action (bash "./test1.exe > test1.reference.out")))
+
+(rule
+  (alias runtest)
+  (deps test1.reference test1.reference.out)
+  (action (bash "diff test1.reference test1.reference.out")))
+
+; ============ test2 ==============
+(rule
+  (targets test2.reference.out)
+  (deps test2.exe)
+  (action (bash "./test2.exe > test2.reference.out")))
+
+(rule
+  (alias runtest)
+  (deps test2.reference test2.reference.out)
+  (action (bash "diff test2.reference test2.reference.out")))
+
+; ============ test3 ==============
+(rule
+  (targets test3.reference.out)
+  (deps test3.exe)
+  (action (bash "./test3.exe > test3.reference.out")))
+
+(rule
+  (alias runtest)
+  (deps test3.reference test3.reference.out)
+  (action (bash "diff test3.reference test3.reference.out")))
+
+; ============ test4 ==============
+(rule
+  (targets test4.reference.out)
+  (deps test4.exe)
+  (action (bash "./test4.exe > test4.reference.out")))
+
+(rule
+  (alias runtest)
+  (deps test4.reference test4.reference.out)
+  (action (bash "diff test4.reference test4.reference.out")))
+
+; ============ test5 ==============
+(rule
+  (targets test5.reference.out)
+  (deps test5.exe)
+  (action (bash "./test5.exe > test5.reference.out")))
+
+(rule
+  (alias runtest)
+  (deps test5.reference test5.reference.out)
+  (action (bash "diff test5.reference test5.reference.out")))
+
+; ============ test10 ==============
+(rule
+  (targets test10.reference.out)
+  (deps test10.exe)
+  (action (bash "./test10.exe > test10.reference.out")))
+
+(rule
+  (alias runtest)
+  (deps test10.reference test10.reference.out)
+  (action (bash "diff test10.reference test10.reference.out")))
+
+; ============ test11 ==============
+(rule
+  (targets test11.reference.out)
+  (deps test11.exe)
+  (action (bash "./test11.exe > test11.reference.out")))
+
+(rule
+  (alias runtest)
+  (deps test11.reference test11.reference.out)
+  (action (bash "diff test11.reference test11.reference.out")))
+
+; ============ used_cont ==============
+(rule
+  (targets used_cont.reference.out)
+  (deps used_cont.exe)
+  (action (bash "./used_cont.exe > used_cont.reference.out")))
+
+(rule
+  (alias runtest)
+  (deps used_cont.reference used_cont.reference.out)
+  (action (bash "diff used_cont.reference used_cont.reference.out")))

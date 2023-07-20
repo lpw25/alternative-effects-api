@@ -1,0 +1,1 @@
+An alternative effects API
