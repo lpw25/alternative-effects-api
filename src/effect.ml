@@ -466,7 +466,8 @@ let rec handle :
             let handler = Raw_handler.weaken handler in
             let fwd = Mapping.lookup handler mapping in
             let fwd = Handler.of_raw fwd in
-            handle mapping (reperform (op, fwd) k last_fiber)
+            let result = (fun () -> reperform (op, fwd) k last_fiber) () in
+            handle mapping result
       end
 
 let resume (Cont { cont; mapping }) f x ((*local_*) handlers) =
