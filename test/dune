@@ -1,6 +1,6 @@
 (executables
   (names cmphash effects evenodd manylive overflow partial reperform sched shallow_state
-              shallow_state_io test1 test2 test3 test4 test5 test10 test11 used_cont)
+              shallow_state_io shallow_state_io_local test1 test2 test3 test4 test5 test10 test11 used_cont)
   (libraries effect)
   (flags (:standard -w "-27-37-32-35-39-69"))
   (preprocess no_preprocessing))
@@ -114,6 +114,17 @@
   (alias runtest)
   (deps shallow_state_io.reference shallow_state_io.reference.out)
   (action (bash "diff shallow_state_io.reference shallow_state_io.reference.out")))
+
+; ============ shallow_state_io_loca ==============
+(rule
+  (targets shallow_state_io_local.reference.out)
+  (deps shallow_state_io_local.exe)
+  (action (bash "./shallow_state_io_local.exe > shallow_state_io_local.reference.out")))
+
+(rule
+  (alias runtest)
+  (deps shallow_state_io_local.reference shallow_state_io_local.reference.out)
+  (action (bash "diff shallow_state_io_local.reference shallow_state_io_local.reference.out")))
 
 ; ============ test1 ==============
 (rule

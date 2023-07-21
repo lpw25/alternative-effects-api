@@ -11,30 +11,32 @@ module Handler : sig
   type 'e t
   (** ['e t] is an effect handler for effect ['e] on the current stack. *)
 
-end
+  module List : sig
 
-module Handlers : sig
-
-  type 'es t =
-    | [] : unit t
-    | (::) : 'e Handler.t * 'es t -> ('e * 'es) t
-  (** ['es t] is a typed list of [Handler.t]s *)
-
-  module Length : sig
-
-    type x = X
+    type 'e handler := 'e t
 
     type 'es t =
       | [] : unit t
-      | (::) : x * 'es t -> ('e * 'es) t
-    (** ['es t] represents the length of a typed list of [Handler.t]s. It has
-        slightly unusual constructors so that lengths can be written as
-        [[X; X; X]] rather than e.g. [(S (S (S Z)))]. *)
+      | (::) : 'e handler * 'es t -> ('e * 'es) t
+    (** ['es t] is a typed list of [Handler.t]s *)
 
-  end
+    module Length : sig
 
-  val length : (*local_*) 'es t -> 'es Length.t
-  (** [length hs] is the length of [hs] *)
+      type x = X
+
+      type 'es t =
+        | [] : unit t
+        | (::) : x * 'es t -> ('e * 'es) t
+      (** ['es t] represents the length of a typed list of [Handler.t]s. It has
+          slightly unusual constructors so that lengths can be written as
+          [[X; X; X]] rather than e.g. [(S (S (S Z)))]. *)
+
+    end
+
+    val length : (*local_*) 'es t -> 'es Length.t
+    (** [length hs] is the length of [hs] *)
+
+  end    
 
 end
 
@@ -53,7 +55,7 @@ end
 val continue :
   ('a, 'b, 'es) Continuation.t
   -> 'a
-  -> (*local_*) 'es Handlers.t
+  -> (*local_*) 'es Handler.List.t
   -> 'b
 (** [continue k v hs] resumes the continuation [k] with value [v]. [hs] are
     used to handle [k]'s additional effects.
@@ -65,7 +67,7 @@ val continue :
 val discontinue :
   ('a, 'b, 'es) Continuation.t
   -> exn
-  -> (*local_*) 'es Handlers.t
+  -> (*local_*) 'es Handler.List.t
   -> 'b
 (** [discontinue k e hs] resumes the continuation [k] by raising the
     exception [e]. [hs] are used to handle [k]'s additional effects.
@@ -78,8 +80,46 @@ val discontinue_with_backtrace :
   ('a,'b, 'es) Continuation.t
   -> exn
   -> Printexc.raw_backtrace
-  -> (*local_*) 'es Handlers.t
+  -> (*local_*) 'es Handler.List.t
   -> 'b
+(** [discontinue_with k e bt hs] resumes the continuation [k] by raising the
+    exception [e] using the raw backtrace [bt] as the origin of the exception.
+    [hs] are used to handle [k]'s additional effects.
+
+    @raise Continuation_already_resumed if the continuation has already been
+    resumed.
+ *)
+
+val continue_local :
+  (*local_*) ('a, 'b, 'es) Continuation.t
+  -> 'a
+  -> (*local_*) 'es Handler.List.t
+  -> (*local_*) 'b
+(** [continue_local k v hs] resumes the continuation [k] with value [v].
+    [hs] are used to handle [k]'s additional effects.
+
+    @raise Continuation_already_resumed if the continuation has already been
+    resumed.
+ *)
+
+val discontinue_local :
+  (*local_*) ('a, 'b, 'es) Continuation.t
+  -> exn
+  -> (*local_*) 'es Handler.List.t
+  -> (*local_*) 'b
+(** [discontinue k e hs] resumes the continuation [k] by raising the
+    exception [e]. [hs] are used to handle [k]'s additional effects.
+
+    @raise Continuation_already_resumed if the continuation has already been
+    resumed.
+ *)
+
+val discontinue_local_with_backtrace :
+  (*local_*) ('a,'b, 'es) Continuation.t
+  -> exn
+  -> Printexc.raw_backtrace
+  -> (*local_*) 'es Handler.List.t
+  -> (*local_*) 'b
 (** [discontinue_with k e bt hs] resumes the continuation [k] by raising the
     exception [e] using the raw backtrace [bt] as the origin of the exception.
     [hs] are used to handle [k]'s additional effects.
@@ -127,10 +167,10 @@ module type S = sig
   end
 
   type ('a, 'es) result = ('a, 'es) Result.t =
-    | Value : 'a -> ('a, 'es) result
-    | Exception : exn -> ('a, 'es) result
+    | Value : (* global_ *) 'a -> ('a, 'es) result
+    | Exception : (* global_ *) exn -> ('a, 'es) result
     | Operation :
-        ('o, t) ops
+        (* global_ *) ('o, t) ops
         * ('o, ('a, 'es) result, 'es) Continuation.t
         -> ('a, 'es) result
 
@@ -141,9 +181,16 @@ module type S = sig
       is passed a [t Handler.t] so that it can perform operations from effect
       [t]. *)
 
+  val fiber_local :
+    (*local_*) ((*local_*) t Handler.t -> 'a -> 'b)
+    -> (*local_*) ('a, ('b, unit) Result.t, unit) Continuation.t
+  (** [fiber_local f] constructs a continuation that runs the computation [f].
+      [f] is passed a [t Handler.t] so that it can perform operations from effect
+      [t]. *)
+
   val fiber_with :
-    (*local_*) 'es Handlers.Length.t
-    -> ((*local_*) (t * 'es) Handlers.t -> 'a -> 'b)
+    (*local_*) 'es Handler.List.Length.t
+    -> ((*local_*) (t * 'es) Handler.List.t -> 'a -> 'b)
     -> ('a, ('b, 'es) Result.t, 'es) Continuation.t
   (** [fiber_with l f] constructs a continuation that runs the computation [f],
       which requires handlers for [l] additional effects. [f] is passed a typed
@@ -155,9 +202,16 @@ module type S = sig
       immediately continues it. [f] is passed a [t Handler.t] so that it can
       perform operations from effect [t]. *)
 
+  val run_local :
+    (*local_*) ((*local_*) t Handler.t -> 'a)
+    -> (*local_*) ('a, unit) Result.t
+  (** [run_local f] constructs a continuation that runs the computation
+      [f], and immediately continues it. [f] is passed a [t Handler.t]
+      so that it can perform operations from effect [t]. *)
+
   val run_with :
-    (*local_*) 'es Handlers.t
-    -> ((*local_*) (t * 'es) Handlers.t -> 'a)
+    (*local_*) 'es Handler.List.t
+    -> ((*local_*) (t * 'es) Handler.List.t -> 'a)
     -> ('a, 'es) Result.t
    (** [run_with hs f] constructs a continuation that runs the computation [f],
       and immediately continues it with handlers [hs]. [f] is passed a typed list
@@ -241,9 +295,16 @@ module type S1 = sig
       is passed a [t Handler.t] so that it can perform operations from effect
       [t]. *)
 
+  val fiber_local :
+    (*local_*) ((*local_*) 'p t Handler.t -> 'a -> 'b)
+    -> (*local_*) ('a, ('b, 'p, unit) Result.t, unit) Continuation.t
+  (** [fiber_local f] constructs a continuation that runs the
+      computation [f]. [f] is passed a [t Handler.t] so that it can
+      perform operations from effect [t]. *)
+
   val fiber_with :
-    (*local_*) 'es Handlers.Length.t
-    -> ((*local_*) ('p t * 'es) Handlers.t -> 'a -> 'b)
+    (*local_*) 'es Handler.List.Length.t
+    -> ((*local_*) ('p t * 'es) Handler.List.t -> 'a -> 'b)
     -> ('a, ('b, 'p, 'es) Result.t, 'es) Continuation.t
   (** [fiber_with l f] constructs a continuation that runs the computation [f],
       which requires handlers for [l] additional effects. [f] is passed a typed
@@ -254,9 +315,15 @@ module type S1 = sig
   (** [run f] constructs a continuation that runs the computation [f], and
       immediately continues it. *)
 
+  val run_local :
+    (*local_*) ((*local_*) 'p t Handler.t -> 'a)
+    -> (*local_*) ('a, 'p, unit) Result.t
+  (** [run_local f] constructs a continuation that runs the computation
+      [f], and immediately continues it. *)
+
   val run_with :
-    (*local_*) 'es Handlers.t
-    -> ((*local_*) ('p t * 'es) Handlers.t -> 'a)
+    (*local_*) 'es Handler.List.t
+    -> ((*local_*) ('p t * 'es) Handler.List.t -> 'a)
     -> ('a, 'p, 'es) Result.t
   (** [run_with hs f] constructs a continuation that runs the computation [f],
       and immediately continues it with handlers [hs]. *)
@@ -334,9 +401,16 @@ module type S2 = sig
       is passed a [t Handler.t] so that it can perform operations from effect
       [t]. *)
 
+  val fiber_local :
+    (*local_*) ((*local_*) ('p, 'q) t Handler.t -> 'a -> 'b)
+    -> (*local_*) ('a, ('b, 'p, 'q, unit) Result.t, unit) Continuation.t
+  (** [fiber_local f] constructs a continuation that runs the
+      computation [f]. [f] is passed a [t Handler.t] so that it can
+      perform operations from effect [t]. *)
+
   val fiber_with :
-    (*local_*) 'es Handlers.Length.t
-    -> ((*local_*) (('p, 'q) t * 'es) Handlers.t -> 'a -> 'b)
+    (*local_*) 'es Handler.List.Length.t
+    -> ((*local_*) (('p, 'q) t * 'es) Handler.List.t -> 'a -> 'b)
     -> ('a, ('b, 'p, 'q, 'es) Result.t, 'es) Continuation.t
   (** [fiber_with l f] constructs a continuation that runs the computation [f],
       which requires handlers for [l] additional effects. [f] is passed a typed
@@ -349,9 +423,15 @@ module type S2 = sig
   (** [run f] constructs a continuation that runs the computation [f], and
       immediately continues it. *)
 
+  val run_local :
+    (*local_*) ((*local_*) ('p, 'q) t Handler.t -> 'a)
+    -> (*local_*) ('a, 'p, 'q, unit) Result.t
+  (** [run_local f] constructs a continuation that runs the computation
+      [f], and immediately continues it. *)
+
   val run_with :
-    (*local_*) 'es Handlers.t
-    -> ((*local_*) (('p, 'q) t * 'es) Handlers.t -> 'a)
+    (*local_*) 'es Handler.List.t
+    -> ((*local_*) (('p, 'q) t * 'es) Handler.List.t -> 'a)
     -> ('a, 'p, 'q, 'es) Result.t
   (** [run_with hs f] constructs a continuation that runs the computation [f],
       and immediately continues it with handlers [hs]. *)

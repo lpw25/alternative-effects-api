@@ -34,10 +34,6 @@ module Handler_index : sig
   val to_int : ('es1, 'es2) t -> int
   (** [to_int t] is the integer representation of [t]. *)
 
-  val is_invalid : ('es1, 'es2) t -> bool
-  (** [is_invalid t] is [true] if [t] is an invalid index produced by
-      [weaken]. *)
-
 end = struct
 
   type ('es1, 'es2) t = int
@@ -55,8 +51,6 @@ end = struct
   let weaken t = t - 1
 
   let to_int t = t
-
-  let is_invalid t = (t < 0)
 
 end
 
@@ -87,10 +81,6 @@ module Raw_handler : sig
   val to_int : ('e, 'es) t -> int
   (** [to_int t] is the integer representation of [t]. *)
 
-  val is_invalid : ('e, 'es2) t -> bool
-  (** [is_invalid t] is [true] if [t] is an invalid handler produced by
-      [weaken]. *)
-
 end = struct
 
   type ('e, 'es) t =
@@ -111,185 +101,213 @@ end = struct
 
   let to_int (Raw_handler i) = Handler_index.to_int i
 
-  let is_invalid (Raw_handler i) = Handler_index.is_invalid i
-
 end
 
 module Handler : sig
 
-  type 'e t [@@immediate]
+  type 'e t = private ..
   (** [e t] is a handler for the effect [e]. *)
 
-  val of_raw : ('e, 'es) Raw_handler.t -> 'e t
-  (** [of_raw h] is the handler corresponding to the raw handler [h]. *)
+  type _ t += Dummy : 'a t
 
-  external unsafe_to_raw
-    : ('es1 t [@local_opt]) -> (('es1, 'es2) Raw_handler.t[@local_opt])
-    = "%identity"
-  (** [unsafe_of_raw t] is the raw representation of [t]. This is only
-      safe if the resulting raw handler has the same effect list as
-      the raw handler used to create [t] via [of_raw]. *)
+  module List : sig
+
+    type 'e handler := 'e t
+
+    type 'es t =
+      | [] : unit t
+      | (::) : 'e handler * 'es t -> ('e * 'es) t
+    (** [es t] is a list of handlers for effects [es]. *)
+
+    module Length : sig
+
+      type x = X
+      (** [x] is the type of [X]s *)
+
+      type 'es t =
+        | [] : unit t
+        | (::) : x * 'es t -> ('e * 'es) t
+      (** [es t] is the length of effect list [es]. It has slightly unusual
+          constructors so that lengths can be written as [[X;X;X]] rather
+          than e.g. [(S (S (S Z)))]. This looks nicer on calls to [fiber_with]:
+    
+          {[
+            fiber_with [X; X; X] (fun [a; b; c] -> ...)
+          ]}
+      *)
+
+    end
+
+    val length : (*local_*) 'es t -> 'es Length.t
+    (** [length t] is the length of [t]. *)
+
+  end
+
+  module type Effs = sig
+    type e
+    type es
+  end
+
+  module type Create = sig
+
+    type e
+
+    type es
+
+    type 'e t += C : ('e, e * es) Raw_handler.t -> 'e t
+
+    val initial : length:(*local_*) es List.Length.t -> es List.t
+    (** [initial ~length] is a list of handlers for effects [es], where [length]
+        is the length of [es]. *)
+
+    val initial_from : (*local_*) es List.t -> es List.t
+    (** [initial_from hs] is a list of handlers for effect [es], where [hs] is
+        another list of handlers for effects [es]. These handlers are selected
+        from the effect list [e * es] for some effect [e]. Note that [hs] is
+        being used only for its length -- the actual handlers in it do not
+        affect the output. *)
+
+  end
+
+  module Create (Effs : Effs)
+    : Create with type e = Effs.e and type es = Effs.es
 
 end = struct
 
-  type 'e t [@@immediate]
+  type 'e t = ..
+  (** [e t] is a handler for the effect [e]. *)
 
-  let of_raw (type e es) (h : (e, es) Raw_handler.t) =
-    (Obj.magic h : e t)
+  type _ t += Dummy : 'a t
 
-  external unsafe_to_raw
-    : ('es1 t [@local_opt]) -> (('es1, 'es2) Raw_handler.t[@local_opt])
-    = "%identity"
+  module List = struct
 
-end
+    type 'e handler = 'e t
 
-module Length = struct
+    type 'es t =
+      | [] : unit t
+      | (::) : 'e handler * 'es t -> ('e * 'es) t
 
-  type x = X
-  (** [x] is the type of [X]s *)
+    module Length = struct
 
-  type 'es t =
-    | [] : unit t
-    | (::) : x * 'es t -> ('e * 'es) t
-  (** [es t] is the length of effect list [es]. It has slightly unusual
-      constructors so that lengths can be written as [[X;X;X]] rather
-      than e.g. [(S (S (S Z)))]. This looks nicer on calls to [fiber_with]:
+      type x = X
+      (** [x] is the type of [X]s *)
 
-      {[
-        fiber_with [X; X; X] (fun [a; b; c] -> ...)
-      ]}
-  *)
+      type 'es t =
+        | [] : unit t
+        | (::) : x * 'es t -> ('e * 'es) t
+      (** [es t] is the length of effect list [es]. It has slightly unusual
+          constructors so that lengths can be written as [[X;X;X]] rather
+          than e.g. [(S (S (S Z)))]. This looks nicer on calls to [fiber_with]:
+    
+          {[
+            fiber_with [X; X; X] (fun [a; b; c] -> ...)
+          ]}
+      *)
 
-end
+    end
 
-module Raw_handlers : sig
-
-  type ('es1, 'es2) t =
-    | [] : (unit, 'es) t
-    | (::) : ('e, 'es2) Raw_handler.t * ('es1, 'es2) t -> ('e * 'es1, 'es2) t
-  (** [(es1, es2) t] is a list of handlers for effects [es1]. These handlers are
-      all selected from effect list [es2]. *)
-
-  val initial : length:(*local_*) 'es Length.t -> ('es, 'e * 'es) t
-  (** [initial ~length] is a list of handlers for effects [es], where [length]
-      is the length of [es]. These handlers are selected from the effect list
-      [e * es] for some effect [e]. *)
-
-  val initial_from : (*local_*) ('es, 'eso) t -> ('es, 'e * 'es) t
-  (** [initial_from hs] is a list of handlers for effect [es], where [hs] is
-      another list of handlers for effects [es]. These handlers are selected
-      from the effect list [e * es] for some effect [e]. Note that [hs] is
-      being used only for its length -- the actual handlers in it do not
-      affect the output. *)
-
-end = struct
-
-  type ('es1, 'es2) t =
-    | [] : (unit, 'es) t
-    | (::) : ('e, 'es2) Raw_handler.t * ('es1, 'es2) t -> ('e * 'es1, 'es2) t
-
-  let initial (type e es) ~((*local_*) length : es Length.t) : (es, e * es) t =
-    let rec loop : type esr.
-      (esr, e * es) Handler_index.t -> (*local_*) esr Length.t -> (esr, e * es) t =
-      fun i l ->
-        match l with
+    let length ((*local_*) t) =
+      let rec loop : type es . (*local_*) es t -> es Length.t = function
         | [] -> []
-        | X :: l' ->
-            let h = Raw_handler.of_index i in
-            h :: loop (Handler_index.succ i) l'
-    in
-    loop Handler_index.one length [@nontail]
+        | _ :: rest -> X :: (loop rest)
+      in
+      loop t [@nontail]
 
-  let initial_from (type e es eso) ((*local_*) t : (es, eso) t) : (es, e * es) t =
-    let rec loop : type esr.
-      (esr, e * es) Handler_index.t -> (*local_*) (esr, eso) t -> (esr, e * es) t =
-      fun i l ->
-        match l with
-        | [] -> []
-        | _ :: rest ->
-            let h = Raw_handler.of_index i in
-            h :: loop (Handler_index.succ i) rest
-    in
-    loop Handler_index.one t [@nontail]
+  end
 
-end
+  module type Effs = sig
+    type e
+    type es
+  end
 
-module Handlers : sig
+  module type Create = sig
 
-  type 'es t =
-    | [] : unit t
-    | (::) : 'e Handler.t * 'es t -> ('e * 'es) t
-  (** [es t] is a list of handlers for effects [es]. *)
+    type e
 
-  module Length = Length
+    type es
 
-  val length : (*local_*) 'es t -> 'es Length.t
-  (** [length t] is the length of [t]. *)
+    type 'e t += C : ('e, e * es) Raw_handler.t -> 'e t
 
-  val of_raw : ('es1, 'es2) Raw_handlers.t -> 'es1 t
-  (** [of_raw hs] is the list of handlers corresponding to list of raw
-      handlers [hs]. *)
+    val initial : length:(*local_*) es List.Length.t -> es List.t
+    (** [initial ~length] is a list of handlers for effects [es], where [length]
+        is the length of [es]. *)
 
-  external unsafe_to_raw
-    : ('es1 t [@local_opt]) -> (('es1, 'es2) Raw_handlers.t[@local_opt])
-    = "%identity"
-  (** [unsafe_of_raw t] is the list of raw handlers corresponding to [t]. This
-      is only safe if the resulting raw handlers have the same effect list as
-      the raw handlers used to create [t] via [of_raw]. *)
+    val initial_from : (*local_*) es List.t -> es List.t
+    (** [initial_from hs] is a list of handlers for effect [es], where [hs] is
+        another list of handlers for effects [es]. These handlers are selected
+        from the effect list [e * es] for some effect [e]. Note that [hs] is
+        being used only for its length -- the actual handlers in it do not
+        affect the output. *)
 
-end = struct
+  end
 
-  type 'es t =
-    | [] : unit t
-    | (::) : 'e Handler.t * 'es t -> ('e * 'es) t
+  module[@inline] Create (Effs : Effs) = struct
 
-  module Length = Length
+    type e = Effs.e
 
-  let length ((*local_*) t) =
-    let rec loop : type es . (*local_*) es t -> es Length.t = function
-      | [] -> []
-      | _ :: rest -> X :: (loop rest)
-    in
-    loop t [@nontail]
+    type es = Effs.es
 
-  let of_raw (type es1 es2) (h : (es1, es2) Raw_handlers.t) =
-    (Obj.magic h : es1 t)
+    type 'e t += C : ('e, e * es) Raw_handler.t -> 'e t
 
-  external unsafe_to_raw
-    : ('es1 t [@local_opt]) -> (('es1, 'es2) Raw_handlers.t[@local_opt])
-    = "%identity"
+    let initial
+          ~((*local_*) length : es List.Length.t) : es List.t =
+      let rec loop
+        : type esr. (esr, e * es) Handler_index.t
+               -> (*local_*) esr List.Length.t -> esr List.t =
+        fun i l ->
+          match l with
+          | [] -> []
+          | X :: l' ->
+              let h = Raw_handler.of_index i in
+              C h :: loop (Handler_index.succ i) l'
+      in
+      loop Handler_index.one length [@nontail]
+
+    let initial_from ((*local_*) t : es List.t) : es List.t =
+      let rec loop
+        : type esr. (esr, e * es) Handler_index.t -> (*local_*) esr List.t
+               -> esr List.t =
+        fun i l ->
+          match l with
+          | [] -> []
+          | _ :: rest ->
+              let h = Raw_handler.of_index i in
+              C h :: loop (Handler_index.succ i) rest
+      in
+      loop Handler_index.one t [@nontail]
+
+  end
 
 end
 
 module Mapping : sig
 
-  type ('es1, 'es2) t
-  (** [(es1, es2) t] represents a mutable mapping of handlers selected from
-      list [es1] to handlers selected from list [es2]. *)
+  type 'es t
+  (** [es t] represents a mutable mapping of handlers selected from
+      list [es]. *)
 
   val lookup :
-    (*local_*) ('e, 'es1) Raw_handler.t
-    -> ('es1, 'es2) t
-    -> ('e, 'es2) Raw_handler.t
+    (*local_*) ('e, 'es) Raw_handler.t
+    -> 'es t
+    -> 'e Handler.t
   (** [lookup h t] looks up handler [h] in mapping [t] and returns the
       corresponding handler. *)
 
-  val empty : (unit, 'es) t
+  val empty : unit t
   (** [empty] is the mapping out of the empty list. *)
 
-  val create : (*local_*) ('es1, 'es2) Raw_handlers.t -> ('es1, 'es2) t
-  (** [create hs] creates a new mapping from [es1] to [es2], where [hs]
-      is a list of handlers for effects [es1] selected from [es2]. Its
-      initial value is to map each handler from [es1] to the corresponding
-      handler in [hs]. *)
+  val create : (*local_*) 'es Handler.List.t -> 'es t
+  (** [create hs] creates a new mapping from [es], where [hs] is a list
+      of handlers for effects [es]. Its initial value is to map each
+      handler from [es] to the corresponding handler in [hs]. *)
 
-  val set : (*local_*) ('es1, 'es2) Raw_handlers.t -> ('es1, 'es2) t -> unit
+  val set : (*local_*) 'es Handler.List.t -> 'es t -> unit
   (** [set hs t] updates the mapping [t] to map each handler to the
       corresponding handler in [hs]. *)
 
-  val create_unset : (*local_*) 'es1 Length.t -> ('es1, 'es2) t
-  (** [create len] creates a new uninitialized mapping from [es1] to [es2],
-      where [len] is the length of [es1]. The mapping must be initialized with
+  val create_unset : (*local_*) 'es Handler.List.Length.t -> 'es t
+  (** [create len] creates a new uninitialized mapping from [es], where
+      [len] is the length of [es]. The mapping must be initialized with
       [set] before it is used. *)
 
 end = struct
@@ -298,27 +316,25 @@ end = struct
 
   let uninitialized : element = Obj.magic (-1)
 
-  type ('es1, 'es2) t = element array
-  (* Can be thought of as an [(exists e. (e, 'es2) Raw_handler.t) array] *)
+  type 'es1 t = element array
 
-  let lookup (type e es1 es2) (h : (e, es1) Raw_handler.t) (t : (es1, es2) t) =
+  let lookup (type e es) (h : (e, es) Raw_handler.t) (t : es t) =
     let elt = Array.unsafe_get t (Raw_handler.to_int h) in
-    (Obj.magic elt : (e, es2) Raw_handler.t)
+    (Obj.magic elt : e Handler.t)
 
   let empty = [||]
 
-  let make (type es1 es2) (idx : (unit, es1) Handler_index.t) : (es1, es2) t =
+  let make (type es) (idx : (unit, es) Handler_index.t) : es t =
     Array.make (Handler_index.to_int idx) uninitialized
 
-  let set_element (type e esr es1 es2) (t : (es1, es2) t)
-      (idx : (e * esr, es1) Handler_index.t) (h : (e, es2) Raw_handler.t) =
+  let set_element (type e esr es) (t : es t)
+      (idx : (e * esr, es) Handler_index.t) (h : e Handler.t) =
     let elt : element = Obj.magic h in
     Array.unsafe_set t (Handler_index.to_int idx) elt
 
-  let create (type es1 es2) ((*local_*) l : (es1, es2) Raw_handlers.t) =
-    let rec loop : type es.
-      (es, es1) Handler_index.t -> (*local_*) (es, es2) Raw_handlers.t
-      -> (es1, es2) t =
+  let create (type es) ((*local_*) l : es Handler.List.t) =
+    let rec loop : type esr.
+      (esr, es) Handler_index.t -> (*local_*) esr Handler.List.t -> es t =
       fun idx l ->
         match l with
         | [] -> make idx
@@ -329,10 +345,9 @@ end = struct
     in
     loop Handler_index.zero l [@nontail]
 
-  let set (type es1 es2) ((*local_*) hs) t =
-    let rec loop : type es.
-      (es, es1) Handler_index.t -> (*local_*) (es, es2) Raw_handlers.t
-      -> (es1, es2) t -> unit =
+  let set (type es) ((*local_*) hs : es Handler.List.t) (t : es t) =
+    let rec loop : type esr.
+      (esr, es) Handler_index.t -> (*local_*) esr Handler.List.t -> es t -> unit =
       fun idx hs t ->
         match hs with
         | [] -> ()
@@ -342,10 +357,10 @@ end = struct
     in
     loop Handler_index.zero hs t [@nontail]
 
-  let create_unset (type es1 es2) ((*local_*) l : es1 Length.t) =
-    let rec loop : type es.
-      (es, es1) Handler_index.t -> (*local_*) es Length.t
-      -> (es1, es2) t =
+  let create_unset (type es) ((*local_*) l : es Handler.List.Length.t) =
+    let rec loop
+      : type esr. (esr, es) Handler_index.t ->
+             (*local_*) esr Handler.List.Length.t -> es t =
       fun idx l ->
         match l with
         | [] -> make idx
@@ -396,41 +411,42 @@ type (+'a, 'es) r =
       * ('o, ('a, 'es) r) cont
       * last_fiber -> ('a, 'es) r
 
-type 'a dummy
-
-let dummy_op : 'a. unit -> ('a, 'a dummy) op = fun () -> Obj.magic ()
-let dummy_handler : 'a. unit -> 'a dummy Handler.t = fun () ->
-  Handler.of_raw (Raw_handler.weaken Raw_handler.zero)
-let dummy_perform : 'a. unit -> ('a, 'a dummy) perform = fun () ->
-  dummy_op (), dummy_handler ()
-
 let valuec v = Val v
 let exnc e = Exn e
 
+external reperform :
+  ('a, 'e) perform -> ('a, 'b) cont -> last_fiber -> 'b = "%reperform"
+
 let alloc_cont
-    (type a h b es) (f : (*local_*) h -> a -> b) (h : h) : (a, (b, es) r) cont =
-  let exception Ready__ of (a, (b, es) r) cont in
-  let effc (type o e) ((op, h) : (o, e) perform)
-      (k : (o, (b, es) r) cont) last_fiber =
-    let h = Handler.unsafe_to_raw h in
-    if Raw_handler.is_invalid h then begin
-      let k = (Obj.magic k : (a, (b, es) r) cont) in
-      raise_notrace (Ready__ k)
-    end else begin
-      Op(op, h, k, last_fiber)
-    end
+    (type a b h e es)
+    (module H : Handler.Create with type e = e and type es = es)
+    (f : (*local_*) h -> a -> b)
+    (h : h) : (a, (b, e * es) r) cont =
+  let exception Ready__ of (a, (b, e * es) r) cont in
+  let effc (type o eh) ((op, h) as perf : (o, eh) perform)
+      (k : (o, (b, e * es) r) cont) last_fiber =
+    match h with
+    | H.C h -> Op(op, h, k, last_fiber)
+    | Handler.Dummy ->
+        let k = (Obj.magic k : (a, (b, e * es) r) cont) in
+        raise_notrace (Ready__ k)
+    | _ -> reperform perf k last_fiber
   in
-  let dummy = dummy_perform () in
   let s = alloc_stack valuec exnc {effc} in
-  match runstack s (fun () -> f h (perform dummy)) () with
+  let dummy_op : (a, e) op = Obj.magic () in
+  let p = dummy_op, Handler.Dummy in
+  match runstack s (fun () -> f h (perform p)) () with
   | _ -> assert false
   | exception Ready__ k -> k
 
 let run_stack
-    (type h a es) (f : (*local_*) h -> a) (h : h) : (a, es) r =
-  let effc (op, h) k last_fiber =
-    let h = Handler.unsafe_to_raw h in
-    Op(op, h, k, last_fiber)
+    (type a h e es)
+    (module H : Handler.Create with type e = e and type es = es)
+     (f : (*local_*) h -> a) (h : h) : (a, e * es) r =
+  let effc ((op, h) as perf) k last_fiber =
+    match h with
+    | H.C h -> Op(op, h, k, last_fiber)
+    | _ -> reperform perf k last_fiber
   in
   let s = alloc_stack valuec exnc {effc} in
   runstack s (fun h -> f h) h
@@ -438,7 +454,7 @@ let run_stack
 type (-'a, +'b, 'e, 'es) continuation =
   Cont :
     { cont : ('a, ('b, 'e * 'es) r) cont;
-      mapping : ('es, 'eso) Mapping.t; }
+      mapping : 'es Mapping.t; }
     -> ('a, 'b, 'e, 'es) continuation
 
 type ('a, 'e, 'es) res =
@@ -451,11 +467,8 @@ type ('a, 'e, 'es) res =
 let get_callstack (Cont { cont; _ }) i =
   get_cont_callstack cont i
 
-external reperform :
-  ('a, 'e) perform -> ('a, 'b) cont -> last_fiber -> 'b = "%reperform"
-
 let rec handle :
-  type a e es1 es2. (es1, es2) Mapping.t -> (a, e * es1) r -> (a, e, es1) res =
+  type a e es. es Mapping.t -> (a, e * es) r -> (a, e, es) res =
   fun mapping -> function
     | Val x -> Value x
     | Exn e -> Exception e
@@ -465,13 +478,11 @@ let rec handle :
         | None ->
             let handler = Raw_handler.weaken handler in
             let fwd = Mapping.lookup handler mapping in
-            let fwd = Handler.of_raw fwd in
             let result = (fun () -> reperform (op, fwd) k last_fiber) () in
             handle mapping result
       end
 
 let resume (Cont { cont; mapping }) f x ((*local_*) handlers) =
-  let handlers = Handlers.unsafe_to_raw handlers in
   Mapping.set handlers mapping;
   handle mapping (resume (take_cont_noexc cont) f x)
 
@@ -484,39 +495,60 @@ let discontinue_with_backtrace k e bt ((*local_*) hs) =
 
 let fiber (type a b e)
     (f : (*local_*) e Handler.t -> a -> b) =
+  let module Effs = struct
+      type nonrec e = e
+      type nonrec es = unit
+    end
+  in
+  let module H = Handler.Create(Effs) in
   let handler : (e, e * unit) Raw_handler.t = Raw_handler.zero in
-  let handler : e Handler.t = Handler.of_raw handler in
+  let handler : e Handler.t = H.C handler in
   let mapping = Mapping.empty in
-  let cont = alloc_cont f handler in
+  let cont = alloc_cont (module H) f handler in
   Cont { cont; mapping }
 
-let fiber_with (type a b e es) ((*local_*) l : es Length.t)
-    (f : (*local_*) (e * es) Handlers.t -> a -> b) =
-  let handler : (e, e * es) Raw_handler.t = Raw_handler.zero in
-  let handlers : (e * es, e * es) Raw_handlers.t =
-    handler :: Raw_handlers.initial ~length:l
+let fiber_with (type a b e es) ((*local_*) l : es Handler.List.Length.t)
+    (f : (*local_*) (e * es) Handler.List.t -> a -> b) =
+  let module Effs = struct
+      type nonrec e = e
+      type nonrec es = es
+    end
   in
-  let handlers = Handlers.of_raw handlers in
+  let module H = Handler.Create(Effs) in
+  let handler : (e, e * es) Raw_handler.t = Raw_handler.zero in
+  let handlers : (e * es) Handler.List.t =
+    H.C handler :: H.initial ~length:l
+  in
   let mapping = Mapping.create_unset l in
-  let cont = alloc_cont f handlers in
+  let cont = alloc_cont (module H) f handlers in
   Cont { cont; mapping }
 
 let run (type a e) (f : (*local_*) e Handler.t -> a) =
+  let module Effs = struct
+      type nonrec e = e
+      type nonrec es = unit
+    end
+  in
+  let module H = Handler.Create(Effs) in
   let handler : (e, e * unit) Raw_handler.t = Raw_handler.zero in
-  let handler : e Handler.t = Handler.of_raw handler in
-  let res = run_stack f handler in
+  let handler : e Handler.t = H.C handler in
+  let res = run_stack (module H) f handler in
   handle Mapping.empty res
 
-let run_with (type a e es) ((*local_*) hs : es Handlers.t)
-    (f : (*local_*) (e * es) Handlers.t -> a) =
-  let hs = Handlers.unsafe_to_raw hs in
-  let handler : (e, e * es) Raw_handler.t = Raw_handler.zero in
-  let handlers : (e * es, e * es) Raw_handlers.t =
-    handler :: Raw_handlers.initial_from hs
+let run_with (type a e es) ((*local_*) hs : es Handler.List.t)
+    (f : (*local_*) (e * es) Handler.List.t -> a) =
+  let module Effs = struct
+      type nonrec e = e
+      type nonrec es = es
+    end
   in
-  let handlers = Handlers.of_raw handlers in
+  let module H = Handler.Create(Effs) in
+  let handler : (e, e * es) Raw_handler.t = Raw_handler.zero in
+  let handlers : (e * es) Handler.List.t =
+    H.C handler :: H.initial_from hs
+  in
   let mapping = Mapping.create hs in
-  let res = run_stack f handlers in
+  let res = run_stack (module H) f handlers in
   handle mapping res
 
 module Continuation = struct
@@ -537,17 +569,23 @@ let continue (type a b es)
   let res : (c, e, es) res = continue cont v hs in
   (Obj.magic res : b)
 
+let continue_local = continue
+
 let discontinue (type a b es)
     (k : (a, b, es) Continuation.t) e ((*local_*) hs) =
   let Continuation (type e c) (cont : (a, c, e, es) continuation) = k in
   let res : (c, e, es) res = discontinue cont e hs in
   (Obj.magic res : b)
 
+let discontinue_local = discontinue
+
 let discontinue_with_backtrace (type a b es)
     (k : (a, b, es) Continuation.t) e bt ((*local_*) hs) =
   let Continuation (type e c) (cont : (a, c, e, es) continuation) = k in
   let res : (c, e, es) res = discontinue_with_backtrace cont e bt hs in
   (Obj.magic res : b)
+
+let discontinue_local_with_backtrace = discontinue_with_backtrace
 
 module type S = sig
 
@@ -588,16 +626,24 @@ module type S = sig
     ((*local_*) t Handler.t -> 'a -> 'b)
     -> ('a, ('b, unit) Result.t, unit) Continuation.t
 
+  val fiber_local :
+    (*local_*) ((*local_*) t Handler.t -> 'a -> 'b)
+    -> (*local_*) ('a, ('b, unit) Result.t, unit) Continuation.t
+
   val fiber_with :
-    (*local_*) 'es Handlers.Length.t
-    -> ((*local_*) (t * 'es) Handlers.t -> 'a -> 'b)
+    (*local_*) 'es Handler.List.Length.t
+    -> ((*local_*) (t * 'es) Handler.List.t -> 'a -> 'b)
     -> ('a, ('b, 'es) Result.t, 'es) Continuation.t
 
   val run : ((*local_*) t Handler.t -> 'a) -> ('a, unit) Result.t
 
+  val run_local :
+    (*local_*) ((*local_*) t Handler.t -> 'a)
+    -> (*local_*) ('a, unit) Result.t
+
   val run_with :
-    (*local_*) 'es Handlers.t
-    -> ((*local_*) (t * 'es) Handlers.t -> 'a)
+    (*local_*) 'es Handler.List.t
+    -> ((*local_*) (t * 'es) Handler.List.t -> 'a)
     -> ('a, 'es) Result.t
 
   val perform : (*local_*) t Handler.t -> ('a, t) ops -> 'a
@@ -656,16 +702,24 @@ module type S1 = sig
     ((*local_*) 'p t Handler.t -> 'a -> 'b)
     -> ('a, ('b, 'p, unit) Result.t, unit) Continuation.t
 
+  val fiber_local :
+    (*local_*) ((*local_*) 'p t Handler.t -> 'a -> 'b)
+    -> (*local_*) ('a, ('b, 'p, unit) Result.t, unit) Continuation.t
+
   val fiber_with :
-    (*local_*) 'es Handlers.Length.t
-    -> ((*local_*) ('p t * 'es) Handlers.t -> 'a -> 'b)
+    (*local_*) 'es Handler.List.Length.t
+    -> ((*local_*) ('p t * 'es) Handler.List.t -> 'a -> 'b)
     -> ('a, ('b, 'p, 'es) Result.t, 'es) Continuation.t
 
   val run : ((*local_*) 'p t Handler.t -> 'a) -> ('a, 'p, unit) Result.t
 
+  val run_local :
+    (*local_*) ((*local_*) 'p t Handler.t -> 'a)
+    -> (*local_*) ('a, 'p, unit) Result.t
+
   val run_with :
-    (*local_*) 'es Handlers.t
-    -> ((*local_*) ('p t * 'es) Handlers.t -> 'a)
+    (*local_*) 'es Handler.List.t
+    -> ((*local_*) ('p t * 'es) Handler.List.t -> 'a)
     -> ('a, 'p, 'es) Result.t
 
   val perform : (*local_*) 'p t Handler.t -> ('a, 'p, 'p t) ops -> 'a
@@ -726,18 +780,26 @@ module type S2 = sig
     ((*local_*) ('p, 'q) t Handler.t -> 'a -> 'b)
     -> ('a, ('b, 'p, 'q, unit) result, unit) Continuation.t
 
+  val fiber_local :
+    (*local_*) ((*local_*) ('p, 'q) t Handler.t -> 'a -> 'b)
+    -> (*local_*) ('a, ('b, 'p, 'q, unit) result, unit) Continuation.t
+
   val fiber_with :
-    (*local_*) 'es Handlers.Length.t
-    -> ((*local_*) (('p, 'q) t * 'es) Handlers.t -> 'a -> 'b)
+    (*local_*) 'es Handler.List.Length.t
+    -> ((*local_*) (('p, 'q) t * 'es) Handler.List.t -> 'a -> 'b)
     -> ('a, ('b, 'p, 'q, 'es) result, 'es) Continuation.t
 
   val run :
     ((*local_*) ('p, 'q) t Handler.t -> 'a)
     -> ('a, 'p, 'q, unit) result
 
+  val run_local :
+    (*local_*) ((*local_*) ('p, 'q) t Handler.t -> 'a)
+    -> (*local_*) ('a, 'p, 'q, unit) result
+
   val run_with :
-    (*local_*) 'es Handlers.t
-    -> ((*local_*) (('p, 'q) t * 'es) Handlers.t -> 'a)
+    (*local_*) 'es Handler.List.t
+    -> ((*local_*) (('p, 'q) t * 'es) Handler.List.t -> 'a)
     -> ('a, 'p, 'q, 'es) result
 
   val perform :
@@ -836,6 +898,8 @@ module Make_rec (Ops : Operations_rec)
     let k : (a, b, t, unit) continuation = fiber f in
     (Continuation k : (a, (b, unit) Result.t, unit) Continuation.t)
 
+  let fiber_local = fiber
+
   let fiber_with (type a b es) ((*local_*) hs) f =
     let k : (a, b, t, es) continuation = fiber_with hs f in
     (Continuation k : (a, (b, es) Result.t, es) Continuation.t)
@@ -843,6 +907,8 @@ module Make_rec (Ops : Operations_rec)
   let run (type a) f =
     let res : (a, t, unit) res = run f in
     (Obj.magic res : (a, unit) Result.t)
+
+  let run_local = run
 
   let run_with (type a es) ((*local_*) hs) f =
     let res : (a, t, es) res = run_with hs f in
@@ -914,17 +980,21 @@ module Make1_rec (Ops : Operations1_rec)
     let k : (a, b, p t, unit) continuation = fiber f in
     (Continuation k : (a, (b, p, unit) Result.t, unit) Continuation.t)
 
+  let fiber_local = fiber
+
   let fiber_with (type a b p es) ((*local_*) hs) f =
     let k : (a, b, p t, es) continuation = fiber_with hs f in
     (Continuation k : (a, (b, p, es) Result.t, es) Continuation.t)
 
-  let run_with (type a p es) ((*local_*) hs) f =
-    let res : (a, p t, es) res = run_with hs f in
-    (Obj.magic res : (a, p, es) Result.t)
-
   let run (type a p) f =
     let res : (a, p t, unit) res = run f in
     (Obj.magic res : (a, p, unit) Result.t)
+
+  let run_local = run
+
+  let run_with (type a p es) ((*local_*) hs) f =
+    let res : (a, p t, es) res = run_with hs f in
+    (Obj.magic res : (a, p, es) Result.t)
 
   let perform (type a p) h (op : (a, p, p t) Ops.t) =
     let op : (a, p t) op = Obj.magic op in
@@ -994,6 +1064,8 @@ module Make2_rec (Ops : Operations2_rec)
     let k : (a, b, (p, q) t, unit) continuation = fiber f in
     (Continuation k : (a, (b, p, q, unit) result, unit) Continuation.t)
 
+  let fiber_local = fiber
+
   let fiber_with (type a p q b es) ((*local_*) hs) f =
     let k : (a, b, (p, q) t, es) continuation = fiber_with hs f in
     (Continuation k : (a, (b, p, q, es) result, es) Continuation.t)
@@ -1001,6 +1073,8 @@ module Make2_rec (Ops : Operations2_rec)
   let run (type a p q) f =
     let res : (a, (p, q) t, unit) res = run f in
     (Obj.magic res : (a, p, q, unit) result)
+
+  let run_local = run
 
   let run_with (type a p q es) ((*local_*) hs) f =
     let res : (a, (p, q) t, es) res = run_with hs f in
@@ -1030,7 +1104,10 @@ module Make2 (Ops : Operations2)
   = Make2_rec(struct type ('a, 'p, 'q, 'e) t = ('a, 'p, 'q) Ops.t end)
 
 exception Continuation_already_resumed
+type exn += Unhandled : 'e Handler.t -> exn
 
-(* Register the exception so that the runtime can access it *)
+(* Register the exceptions so that the runtime can access it *)
+let _ = Callback.register_exception "Effect.Unhandled"
+          (Unhandled Handler.Dummy)
 let _ = Callback.register_exception "Effect.Continuation_already_resumed"
           Continuation_already_resumed
